@@ -1,6 +1,11 @@
 import { providers } from "ethers";
 import { getAllLogs, LogFilter } from "../../utils/getAllLogs";
 
+const GITCOIN_CONTRACT_EMITTING_EVENTS =
+  "0x8fBEa07446DdF4518b1a7BA2B4f11Bd140a8DF41";
+const CONTRACT_CREATION_BLOCK = 16349429;
+const VOTE_EVENT_TOPIC =
+  "0x4182eb95d486b42fddcea225162f9a5f93b06dfebeddf5819d0f57f2c6af3e1b";
 const L2BEAT_GRANT = "6c5a2688c83c806150ca9dd0b2f10f16f8f1c33e";
 const TOKENS = {
   "0000000000000000000000000000000000000000000000000000000000000000": "ETH",
@@ -9,39 +14,55 @@ const TOKENS = {
 
 export async function getL2BeatDonations(provider: providers.JsonRpcProvider) {
   const filter: LogFilter = {
-    address: "0x8fBEa07446DdF4518b1a7BA2B4f11Bd140a8DF41",
-    topics: [
-      "0x4182eb95d486b42fddcea225162f9a5f93b06dfebeddf5819d0f57f2c6af3e1b",
-    ],
-    fromBlock: 16349429,
+    address: GITCOIN_CONTRACT_EMITTING_EVENTS,
+    topics: [VOTE_EVENT_TOPIC],
+    fromBlock: CONTRACT_CREATION_BLOCK,
     toBlock: await provider.getBlockNumber(),
   };
 
   const logs = await getAllLogs(provider, filter);
 
+  {
+    const { result, uniqueDonors } = getResult(logs);
+    printResult("OVERALL", result, uniqueDonors.size);
+  }
+
+  {
+    const { result, uniqueDonors } = getResult(
+      logs.filter((l) => l.data.includes(L2BEAT_GRANT))
+    );
+    printResult("L2BEAT", result, uniqueDonors.size);
+  }
+
+  console.log("\n");
+}
+
+function getResult(logs: providers.Log[]) {
   const result: Record<string, number> = {};
   const uniqueDonors: Set<string> = new Set();
 
   for (const log of logs) {
-    const [token, amount, grant] = cutData(log.data);
+    const [token, amount] = cutData(log.data);
     const decimalAmount = parseInt(amount, 16) / 1e18;
 
-    if (grant.includes(L2BEAT_GRANT)) {
-      uniqueDonors.add(log.topics[1]);
-      if (result[token] === undefined) {
-        result[token] = decimalAmount;
-      } else {
-        result[token] += decimalAmount;
-      }
+    uniqueDonors.add(log.topics[1]);
+    if (result[token] === undefined) {
+      result[token] = decimalAmount;
+    } else {
+      result[token] += decimalAmount;
     }
   }
 
-  printResult(result, uniqueDonors.size);
+  return { result, uniqueDonors };
 }
 
-function printResult(result: Record<string, number>, uniqueDonors: number) {
+function printResult(
+  project: string,
+  result: Record<string, number>,
+  uniqueDonors: number
+) {
   console.log(
-    `\nL2Beat Gitcoin alpha stats @ ${new Date().toLocaleString("en")}`
+    `\n${project} Gitcoin alpha stats @ ${new Date().toLocaleString("en")}`
   );
   console.log("\nSummary of donations: ");
   for (const [key, value] of Object.entries(result)) {
